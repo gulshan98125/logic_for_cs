@@ -13,8 +13,16 @@ exception Not_wff of (term list * form list);
 exception Not_closed of term list;
 exception DPLL_unsat of int;
 
+Control.Print.stringDepth := 200;
+
 (* gets length of list *)
 fun len(L) = case L of []=> 0| x::xs => 1+len(xs);
+fun list_contains(L,element) = case L of
+								[] => false
+							|   x::xs => if(x=element) then true else list_contains(xs,element);
+(* fun numberofAppearance(L, element, result) = case L of [] => result
+													|  x::xs => if(x=element) then numberofAppearance(xs, element, result+1)
+																else numberofAppearance(xs, element ,result); *)
 
 
 (*WFF CODE STARTS*)
@@ -61,14 +69,9 @@ fun term_list_consistent_temp(term_list, term_list_copy) = case term_list of [] 
 
 
 
-(* fun string_list_consistent_temp(string_list, string_list_copy) = case string_list of [] => true
-														| x::xs => if (contains_different(x, string_list_copy)=false) then string_list_consistent_temp(xs,string_list_copy) else false;
- *)
-
 fun pred_list_consistent(predList) = pred_list_consistent_temp(predList, predList);
 fun term_list_consistent(termList) = term_list_consistent_temp(termList, termList);
 
-(* fun string_list_consistent(stringList) = string_list_consistent_temp(stringList, stringList); *)
 fun get_different_preds(pred_list, pred_list_copy, result) = case pred_list of [] => result
 														| x::xs => 	case x of (p,value) =>
 																	if (contains_different_pred(x, pred_list_copy)=false) then get_different_preds(xs,pred_list_copy, result) else get_different_preds(xs,pred_list_copy, result@[p]);
@@ -76,6 +79,23 @@ fun get_different_preds(pred_list, pred_list_copy, result) = case pred_list of [
 fun get_different_terms(term_list, term_list_copy, result) = case term_list of [] => result
 														| x::xs => case x of (t,value) =>
 																	if (contains_different_term(x, term_list_copy)=false) then get_different_terms(xs,term_list_copy, result) else get_different_terms(xs,term_list_copy, result@[t]);
+
+
+fun term_list_to_string(l) = case l of
+									 [] => ""
+								|    F(a,b)::[] => "F('" ^ a ^ "," ^ term_list_to_string(b) ^ ")"
+								|    C(a)::[] => "C '" ^ a ^ "'"
+								|    V(a)::[] => "V '" ^ a ^ "'"
+								|    F(a,b)::xs => "F('" ^ a ^ "'," ^ term_list_to_string(b) ^ ")," ^ term_list_to_string(xs)
+								|    C(a)::xs => "C '" ^ a ^ "'," ^ term_list_to_string(xs)
+								|    V(a)::xs => "V '" ^ a ^ "'," ^ term_list_to_string(xs);
+								
+
+fun pred_list_to_string(l) = case l of [] => ""
+								|  	 PRED(a,b)::[] => "PRED('" ^ a ^ "',[" ^ term_list_to_string(b) ^ "])"
+								|  	 PRED(a,b)::xs => "PRED('" ^ a ^ "',[" ^ term_list_to_string(b) ^ "]), " ^ pred_list_to_string(xs);
+								
+
 
 fun wff(formula) =  let
 						val termlist = get_term_tracker(get_arity_lists(formula, [], []));
@@ -88,25 +108,41 @@ fun wff(formula) =  let
 							let
 								val a = get_different_terms(termlist, termlist,[]);
 								val b = get_different_preds(predlist, predlist, []);
+								val temp= print("terms list = [" ^ term_list_to_string(a) ^ "]\n");
+								val temp = print("predicates list = [" ^ pred_list_to_string(b) ^ "]\n");
 							in
 								raise (Not_wff(a,b))
 							end
 					end;
 
-fun wff_error(formula) = let
-							val termlist = get_term_tracker(get_arity_lists(formula, [], []));
-							val predlist = get_pred_tracker(get_arity_lists(formula, [], []));
-						in
-							if(term_list_consistent(termlist) andalso pred_list_consistent(predlist)) 
-							then 
-								([],[])
-							else
-								let
-									val a = get_different_terms(termlist, termlist,[]);
-									val b = get_different_preds(predlist, predlist, []);
-								in
-									(b,a)
-								end
-						end;
-
 (*WFF CODE ENDS*)
+
+fun getFV_from_termlist(t_list, closed_tracker, result) = case t_list of
+													[] => result
+												|	C(s)::xs => getFV_from_termlist(xs, closed_tracker, result)
+												| 	V(s)::xs => if(list_contains(closed_tracker, V(s))) 
+																then getFV_from_termlist(xs, closed_tracker, result)
+																else if(list_contains(closed_tracker, V(s))=false andalso (list_contains(result, V(s)))=false)
+																then getFV_from_termlist(xs, closed_tracker, result@[V(s)])
+															    else getFV_from_termlist(xs, closed_tracker, result)
+												|   F(s,t)::xs => getFV_from_termlist(xs, closed_tracker, getFV_from_termlist(t, closed_tracker, result));
+
+fun fv_temp(formula, closed_tracker) = case formula of 
+									NOT(x) => fv_temp(x, closed_tracker)
+								|   FORALL(x,form) => fv_temp(form, closed_tracker@[x])
+								| 	EXISTS(x,form) => fv_temp(form, closed_tracker@[x]) 
+								|   AND(x1,x2) => fv_temp(x1, closed_tracker) @ fv_temp(x2, closed_tracker)
+								|   OR(x1,x2) => fv_temp(x1, closed_tracker) @ fv_temp(x2, closed_tracker)
+								|   PRED(str, t_list) => getFV_from_termlist(t_list, closed_tracker, []);
+
+fun filter_fv_temp(l, l_copy, result) = case l of [] => result
+										| x::xs => if(list_contains(result,x)=true) then  filter_fv_temp(xs, l_copy, result)
+													else filter_fv_temp(xs, l_copy, result@[x]);
+
+fun fv(formula) =  let
+					  val a  = fv_temp(formula, []);
+					in
+					  filter_fv_temp(a,a,[])
+					end;
+
+					
